@@ -6,7 +6,7 @@ const DARK_BLUE = "#0F2140";
 const DARK_BLUE_LIGHT = "#1B335C";
 const PURPLE_BORDER = "#5D4976";
 
-const DRIVER_NAMES = ["Rustamjon", "Botirjon", "Sardorbek", "Aziz", "Farrux"];
+const DRIVER_NAMES = ["Rustamjon", "Ruzmatjon", "Mahsadjon", "Alimardon", "Farrux"];
 
 function fmt(n) { return "$" + (Number(n) || 0).toLocaleString("en-US"); }
 function formatDate(iso) {
