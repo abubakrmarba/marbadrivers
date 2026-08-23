@@ -6,7 +6,7 @@ const DARK_BLUE = "#0F2140";
 const DARK_BLUE_LIGHT = "#1B335C";
 const PURPLE_BORDER = "#5D4976";
 
-const DRIVER_NAMES = ["Rustamjon", "Ruzmatjon", "Mahsadjon", "Alimardon", "Farrux"];
+const DRIVER_NAMES = ["Rustamjon", "Botirjon", "Sardorbek", "Aziz", "Farrux"];
 
 function fmt(n) { return "$" + (Number(n) || 0).toLocaleString("en-US"); }
 function formatDate(iso) {
@@ -145,7 +145,7 @@ export default function App() {
           <div style={styles.sectionTitle}>Yig'ilgan buyurtmalar ({available.length})</div>
           {available.length === 0 ? (
             <div style={{ textAlign: "center", color: "#9FB0CC", padding: "30px 0", fontSize: 13.5 }}>Hozircha buyurtma yo'q.</div>
-          ) : available.map((o) => <OrderCard key={o.id} order={o} action={{ label: "Qabul qilish", onPress: () => acceptOrder(o), busy: busyId === o.id }} />)}
+          ) : available.map((o) => <OrderCard key={o.id} order={o} action={{ label: "Yuklab oldim", onPress: () => acceptOrder(o), busy: busyId === o.id }} />)}
         </div>
       </div>
     </div>
