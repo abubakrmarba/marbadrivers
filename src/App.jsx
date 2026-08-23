@@ -40,22 +40,36 @@ export default function App() {
     setLoading(false);
   }
 
+  async function attachCustomers(orders) {
+    const ids = [...new Set((orders || []).map((o) => o.customer_id).filter(Boolean))];
+    if (ids.length === 0) return orders || [];
+    const { data: custs } = await supabase
+      .from("customers")
+      .select("id, name, viloyat, manzil, delivery_lat, delivery_lng, phone")
+      .in("id", ids);
+    const map = {};
+    (custs || []).forEach((c) => { map[c.id] = c; });
+    return (orders || []).map((o) => ({ ...o, customers: map[o.customer_id] }));
+  }
+
   const refresh = useCallback(async () => {
     if (!session) return;
-    const { data: avail } = await supabase
+    const { data: avail, error: availErr } = await supabase
       .from("buyurtmalar")
-      .select("*, buyurtma_items(*), customers(name, viloyat, manzil, delivery_lat, delivery_lng, phone)")
+      .select("*, buyurtma_items(*)")
       .eq("status", "yigilmoqda")
       .order("created_at", { ascending: true });
-    setAvailable(avail || []);
+    if (availErr) console.error("avail error", availErr);
+    setAvailable(await attachCustomers(avail));
 
-    const { data: mineData } = await supabase
+    const { data: mineData, error: mineErr } = await supabase
       .from("buyurtmalar")
-      .select("*, buyurtma_items(*), customers(name, viloyat, manzil, delivery_lat, delivery_lng, phone)")
+      .select("*, buyurtma_items(*)")
       .eq("status", "yolda")
       .eq("driver_name", driverName)
       .order("created_at", { ascending: true });
-    setMine(mineData || []);
+    if (mineErr) console.error("mine error", mineErr);
+    setMine(await attachCustomers(mineData));
   }, [session, driverName]);
 
   useEffect(() => {
