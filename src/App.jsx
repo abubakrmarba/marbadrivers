@@ -6,7 +6,7 @@ const DARK_BLUE = "#0F2140";
 const DARK_BLUE_LIGHT = "#1B335C";
 const PURPLE_BORDER = "#5D4976";
 
-const DRIVER_NAMES = ["Rustamjon", "Botirjon", "Sardorbek", "Aziz", "Farrux"];
+const DRIVER_NAMES = ["Musoxon", "Alimardon", "Lazizxon", "Bilolxon", "Oybek", "Oybek Yangi", "Rustamjon", "Ruzmatjon"];
 
 function fmt(n) { return "$" + (Number(n) || 0).toLocaleString("en-US"); }
 function formatDate(iso) {
@@ -17,6 +17,7 @@ function formatDate(iso) {
 export default function App() {
   const [session, setSession] = useState(null);
   const [driverName, setDriverName] = useState("");
+  const [driverPhone, setDriverPhone] = useState("");
   const [loading, setLoading] = useState(true);
   const [loginName, setLoginName] = useState(null);
   const [loginPass, setLoginPass] = useState("");
@@ -35,9 +36,15 @@ export default function App() {
 
   async function initDriver(s) {
     setSession(s);
-    const { data } = await supabase.from("drivers").select("name").eq("auth_user_id", s.user.id).maybeSingle();
+    const { data } = await supabase.from("drivers").select("name, phone").eq("auth_user_id", s.user.id).maybeSingle();
     setDriverName(data?.name || s.user.email.split("@")[0]);
+    setDriverPhone(data?.phone || "");
     setLoading(false);
+  }
+
+  async function savePhone(newPhone) {
+    await supabase.from("drivers").update({ phone: newPhone }).eq("auth_user_id", session.user.id);
+    setDriverPhone(newPhone);
   }
 
   async function attachCustomers(orders) {
@@ -82,7 +89,7 @@ export default function App() {
   async function doLogin() {
     if (!loginName) { setLoginError("Ismingizni tanlang"); return; }
     setBusy(true);
-    const email = `${loginName.toLowerCase()}@marba-driver.internal`;
+    const email = `${loginName.toLowerCase().replace(/\s+/g, "")}@marba-driver.internal`;
     const { error } = await supabase.auth.signInWithPassword({ email, password: loginPass });
     setBusy(false);
     if (error) { setLoginError("Parol noto'g'ri"); return; }
@@ -94,7 +101,7 @@ export default function App() {
 
   async function acceptOrder(order) {
     setBusyId(order.id);
-    await supabase.from("buyurtmalar").update({ status: "yolda", driver_name: driverName }).eq("id", order.id);
+    await supabase.from("buyurtmalar").update({ status: "yolda", driver_name: driverName, driver_phone: driverPhone }).eq("id", order.id);
     setBusyId(null);
     refresh();
   }
@@ -141,9 +148,15 @@ export default function App() {
     <div style={styles.page}>
       <div style={styles.frame}>
         <div style={styles.header}>
-          <div>
+          <div
+            onClick={() => {
+              const val = window.prompt("Telefon raqamingizni kiriting:", driverPhone);
+              if (val !== null) savePhone(val.trim());
+            }}
+            style={{ cursor: "pointer" }}
+          >
             <div style={{ fontWeight: 900, fontStyle: "italic", fontSize: 16, color: "#fff" }}>MARBA DRIVERS</div>
-            <div style={{ fontSize: 12, color: "#9FB0CC", marginTop: 2 }}>{driverName}</div>
+            <div style={{ fontSize: 12, color: "#9FB0CC", marginTop: 2 }}>{driverName}{driverPhone ? ` • ${driverPhone}` : " • telefon kiritish uchun bosing"}</div>
           </div>
           <button onClick={doLogout} style={styles.logoutBtn}>Chiqish</button>
         </div>
