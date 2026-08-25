@@ -8,23 +8,25 @@ const PURPLE_BORDER = "#5D4976";
 
 const DRIVER_NAMES = ["Musoxon", "Alimardon", "Lazizxon", "Bilolxon", "Oybek", "Oybek Yangi", "Rustamjon", "Ruzmatjon"];
 
-const ZONES = {
-  "Vodiy": ["fargona", "farg'ona", "andijon", "namangan"],
-  "Voha": ["xorazm", "buxoro", "navoiy"],
-  "Toshkent": ["toshkent"],
-  "Markaziy": ["samarqand", "jizzax", "sirdaryo"],
-  "Janubiy": ["qashqadaryo", "surxondaryo"],
-  "Qoraqalpog'iston": ["qoraqalpog'iston", "qoraqalpogiston", "nukus"],
+const ZONE_PROVINCES = {
+  "Vodiy": ["Farg'ona", "Andijon", "Namangan"],
+  "Voha": ["Xorazm", "Buxoro", "Navoiy"],
+  "Toshkent": ["Toshkent"],
+  "Markaziy": ["Samarqand", "Jizzax", "Sirdaryo"],
+  "Janubiy": ["Qashqadaryo", "Surxondaryo"],
+  "Qoraqalpog'iston": ["Qoraqalpog'iston"],
 };
-const ZONE_NAMES = Object.keys(ZONES);
+const ZONE_NAMES = Object.keys(ZONE_PROVINCES);
 
 function normalize(s) {
   return (s || "").toLowerCase().replace(/['‘’]/g, "'").trim();
 }
+function matchesProvince(customerViloyat, province) {
+  return normalize(customerViloyat).includes(normalize(province));
+}
 function matchesZone(customerViloyat, zoneName) {
-  const provinces = ZONES[zoneName] || [];
-  const v = normalize(customerViloyat);
-  return provinces.some((p) => v.includes(normalize(p)));
+  const provinces = ZONE_PROVINCES[zoneName] || [];
+  return provinces.some((p) => matchesProvince(customerViloyat, p));
 }
 
 function fmt(n) { return "$" + (Number(n) || 0).toLocaleString("en-US"); }
@@ -38,6 +40,7 @@ export default function App() {
   const [driverName, setDriverName] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
   const [driverZone, setDriverZone] = useState("");
+  const [driverViloyat, setDriverViloyat] = useState("");
   const [loading, setLoading] = useState(true);
   const [loginName, setLoginName] = useState(null);
   const [loginPass, setLoginPass] = useState("");
@@ -56,16 +59,23 @@ export default function App() {
 
   async function initDriver(s) {
     setSession(s);
-    const { data } = await supabase.from("drivers").select("name, phone, hudud").eq("auth_user_id", s.user.id).maybeSingle();
+    const { data } = await supabase.from("drivers").select("name, phone, hudud, viloyat").eq("auth_user_id", s.user.id).maybeSingle();
     setDriverName(data?.name || s.user.email.split("@")[0]);
     setDriverPhone(data?.phone || "");
     setDriverZone(data?.hudud || "");
+    setDriverViloyat(data?.viloyat || "");
     setLoading(false);
   }
 
   async function saveZone(zone) {
-    await supabase.from("drivers").update({ hudud: zone }).eq("auth_user_id", session.user.id);
+    await supabase.from("drivers").update({ hudud: zone, viloyat: null }).eq("auth_user_id", session.user.id);
     setDriverZone(zone);
+    setDriverViloyat("");
+  }
+
+  async function saveViloyat(viloyat) {
+    await supabase.from("drivers").update({ viloyat }).eq("auth_user_id", session.user.id);
+    setDriverViloyat(viloyat);
   }
 
   async function savePhone(newPhone) {
@@ -94,9 +104,12 @@ export default function App() {
       .order("created_at", { ascending: true });
     if (availErr) console.error("avail error", availErr);
     const availWithCustomers = await attachCustomers(avail);
-    const filteredAvail = driverZone
-      ? availWithCustomers.filter((o) => matchesZone(o.customers?.viloyat, driverZone))
-      : availWithCustomers;
+    let filteredAvail = availWithCustomers;
+    if (driverViloyat) {
+      filteredAvail = availWithCustomers.filter((o) => matchesProvince(o.customers?.viloyat, driverViloyat));
+    } else if (driverZone) {
+      filteredAvail = availWithCustomers.filter((o) => matchesZone(o.customers?.viloyat, driverZone));
+    }
     setAvailable(filteredAvail);
 
     const { data: mineData, error: mineErr } = await supabase
@@ -107,7 +120,7 @@ export default function App() {
       .order("created_at", { ascending: true });
     if (mineErr) console.error("mine error", mineErr);
     setMine(await attachCustomers(mineData));
-  }, [session, driverName, driverZone]);
+  }, [session, driverName, driverZone, driverViloyat]);
 
   useEffect(() => {
     if (!session || !driverName) return;
@@ -189,14 +202,26 @@ export default function App() {
               <div style={{ fontWeight: 900, fontStyle: "italic", fontSize: 16, color: "#fff" }}>MARBA DRIVERS</div>
               <div style={{ fontSize: 12, color: "#9FB0CC", marginTop: 2 }}>{driverName}{driverPhone ? ` • ${driverPhone}` : " • telefon kiritish uchun bosing"}</div>
             </div>
-            <select
-              value={driverZone}
-              onChange={(e) => saveZone(e.target.value)}
-              style={{ marginTop: 6, background: DARK_BLUE_LIGHT, color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700 }}
-            >
-              <option value="">Hudud tanlanmagan</option>
-              {ZONE_NAMES.map((z) => <option key={z} value={z}>{z}</option>)}
-            </select>
+            <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+              <select
+                value={driverZone}
+                onChange={(e) => saveZone(e.target.value)}
+                style={{ background: DARK_BLUE_LIGHT, color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700 }}
+              >
+                <option value="">Hudud tanlanmagan</option>
+                {ZONE_NAMES.map((z) => <option key={z} value={z}>{z}</option>)}
+              </select>
+              {driverZone && (ZONE_PROVINCES[driverZone] || []).length > 1 && (
+                <select
+                  value={driverViloyat}
+                  onChange={(e) => saveViloyat(e.target.value)}
+                  style={{ background: DARK_BLUE_LIGHT, color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700 }}
+                >
+                  <option value="">Barcha viloyatlar</option>
+                  {ZONE_PROVINCES[driverZone].map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              )}
+            </div>
           </div>
           <button onClick={doLogout} style={styles.logoutBtn}>Chiqish</button>
         </div>
