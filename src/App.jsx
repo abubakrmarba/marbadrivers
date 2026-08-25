@@ -8,6 +8,25 @@ const PURPLE_BORDER = "#5D4976";
 
 const DRIVER_NAMES = ["Musoxon", "Alimardon", "Lazizxon", "Bilolxon", "Oybek", "Oybek Yangi", "Rustamjon", "Ruzmatjon"];
 
+const ZONES = {
+  "Vodiy": ["fargona", "farg'ona", "andijon", "namangan"],
+  "Voha": ["xorazm", "buxoro", "navoiy"],
+  "Toshkent": ["toshkent"],
+  "Markaziy": ["samarqand", "jizzax", "sirdaryo"],
+  "Janubiy": ["qashqadaryo", "surxondaryo"],
+  "Qoraqalpog'iston": ["qoraqalpog'iston", "qoraqalpogiston", "nukus"],
+};
+const ZONE_NAMES = Object.keys(ZONES);
+
+function normalize(s) {
+  return (s || "").toLowerCase().replace(/['‘’]/g, "'").trim();
+}
+function matchesZone(customerViloyat, zoneName) {
+  const provinces = ZONES[zoneName] || [];
+  const v = normalize(customerViloyat);
+  return provinces.some((p) => v.includes(normalize(p)));
+}
+
 function fmt(n) { return "$" + (Number(n) || 0).toLocaleString("en-US"); }
 function formatDate(iso) {
   try { return new Date(iso).toLocaleString("uz-UZ", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
@@ -18,6 +37,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [driverName, setDriverName] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
+  const [driverZone, setDriverZone] = useState("");
   const [loading, setLoading] = useState(true);
   const [loginName, setLoginName] = useState(null);
   const [loginPass, setLoginPass] = useState("");
@@ -36,10 +56,16 @@ export default function App() {
 
   async function initDriver(s) {
     setSession(s);
-    const { data } = await supabase.from("drivers").select("name, phone").eq("auth_user_id", s.user.id).maybeSingle();
+    const { data } = await supabase.from("drivers").select("name, phone, hudud").eq("auth_user_id", s.user.id).maybeSingle();
     setDriverName(data?.name || s.user.email.split("@")[0]);
     setDriverPhone(data?.phone || "");
+    setDriverZone(data?.hudud || "");
     setLoading(false);
+  }
+
+  async function saveZone(zone) {
+    await supabase.from("drivers").update({ hudud: zone }).eq("auth_user_id", session.user.id);
+    setDriverZone(zone);
   }
 
   async function savePhone(newPhone) {
@@ -67,7 +93,11 @@ export default function App() {
       .eq("status", "yigilmoqda")
       .order("created_at", { ascending: true });
     if (availErr) console.error("avail error", availErr);
-    setAvailable(await attachCustomers(avail));
+    const availWithCustomers = await attachCustomers(avail);
+    const filteredAvail = driverZone
+      ? availWithCustomers.filter((o) => matchesZone(o.customers?.viloyat, driverZone))
+      : availWithCustomers;
+    setAvailable(filteredAvail);
 
     const { data: mineData, error: mineErr } = await supabase
       .from("buyurtmalar")
@@ -77,7 +107,7 @@ export default function App() {
       .order("created_at", { ascending: true });
     if (mineErr) console.error("mine error", mineErr);
     setMine(await attachCustomers(mineData));
-  }, [session, driverName]);
+  }, [session, driverName, driverZone]);
 
   useEffect(() => {
     if (!session || !driverName) return;
@@ -148,15 +178,25 @@ export default function App() {
     <div style={styles.page}>
       <div style={styles.frame}>
         <div style={styles.header}>
-          <div
-            onClick={() => {
-              const val = window.prompt("Telefon raqamingizni kiriting:", driverPhone);
-              if (val !== null) savePhone(val.trim());
-            }}
-            style={{ cursor: "pointer" }}
-          >
-            <div style={{ fontWeight: 900, fontStyle: "italic", fontSize: 16, color: "#fff" }}>MARBA DRIVERS</div>
-            <div style={{ fontSize: 12, color: "#9FB0CC", marginTop: 2 }}>{driverName}{driverPhone ? ` • ${driverPhone}` : " • telefon kiritish uchun bosing"}</div>
+          <div>
+            <div
+              onClick={() => {
+                const val = window.prompt("Telefon raqamingizni kiriting:", driverPhone);
+                if (val !== null) savePhone(val.trim());
+              }}
+              style={{ cursor: "pointer" }}
+            >
+              <div style={{ fontWeight: 900, fontStyle: "italic", fontSize: 16, color: "#fff" }}>MARBA DRIVERS</div>
+              <div style={{ fontSize: 12, color: "#9FB0CC", marginTop: 2 }}>{driverName}{driverPhone ? ` • ${driverPhone}` : " • telefon kiritish uchun bosing"}</div>
+            </div>
+            <select
+              value={driverZone}
+              onChange={(e) => saveZone(e.target.value)}
+              style={{ marginTop: 6, background: DARK_BLUE_LIGHT, color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700 }}
+            >
+              <option value="">Hudud tanlanmagan</option>
+              {ZONE_NAMES.map((z) => <option key={z} value={z}>{z}</option>)}
+            </select>
           </div>
           <button onClick={doLogout} style={styles.logoutBtn}>Chiqish</button>
         </div>
