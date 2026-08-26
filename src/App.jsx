@@ -69,6 +69,8 @@ export default function App() {
 
   const watchIdRef = useRef(null);
   const lastCoordsRef = useRef(null);
+  const routeStartedAtRef = useRef(null);
+  const routeKmRef = useRef(0);
 
   useEffect(function () {
     supabase.auth.getSession().then(function (res) {
@@ -122,6 +124,7 @@ export default function App() {
   function startRoute() {
     if (!navigator.geolocation) { alert("Bu qurilmada joylashuv xizmati mavjud emas"); return; }
     lastCoordsRef.current = null;
+    routeStartedAtRef.current = new Date().toISOString();
     setRouteKm(0);
     setOnRoute(true);
     supabase.from("drivers").update({ on_route: true, route_km: 0 }).eq("auth_user_id", session.user.id);
@@ -137,6 +140,7 @@ export default function App() {
             if (delta > 0.01 && delta < 2) newKm = prevKm + delta;
           }
           lastCoordsRef.current = { lat: latitude, lng: longitude };
+          routeKmRef.current = newKm;
           supabase.from("drivers").update({
             current_lat: latitude,
             current_lng: longitude,
@@ -158,6 +162,16 @@ export default function App() {
     }
     setOnRoute(false);
     supabase.from("drivers").update({ on_route: false }).eq("auth_user_id", session.user.id);
+    if (routeKmRef.current > 0.05) {
+      supabase.from("driver_routes").insert({
+        driver_name: driverName,
+        started_at: routeStartedAtRef.current,
+        ended_at: new Date().toISOString(),
+        km: routeKmRef.current,
+      });
+    }
+    routeStartedAtRef.current = null;
+    routeKmRef.current = 0;
   }
 
   async function attachCustomers(orders) {
@@ -364,6 +378,22 @@ export default function App() {
 }
 
 function AdminPanel() {
+  const [tab, setTab] = useState("holat");
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <button onClick={function () { setTab("holat"); }} style={tab === "holat" ? styles.adminTabActive : styles.adminTab}>Holat</button>
+        <button onClick={function () { setTab("tarix"); }} style={tab === "tarix" ? styles.adminTabActive : styles.adminTab}>Tarix</button>
+        <button onClick={function () { setTab("masofa"); }} style={tab === "masofa" ? styles.adminTabActive : styles.adminTab}>Masofa</button>
+      </div>
+      {tab === "holat" && <AdminHolat />}
+      {tab === "tarix" && <AdminTarix />}
+      {tab === "masofa" && <AdminMasofa />}
+    </div>
+  );
+}
+
+function AdminHolat() {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -383,7 +413,6 @@ function AdminPanel() {
 
   return (
     <div>
-      <div style={styles.sectionTitle}>Haydovchilar holati</div>
       {drivers.map(function (d) {
         const mapHref = d.current_lat && d.current_lng
           ? "https://yandex.uz/maps/?pt=" + d.current_lng + "," + d.current_lat + "&z=15&l=map"
@@ -400,13 +429,108 @@ function AdminPanel() {
               {d.phone || "tel yoq"} {d.hudud ? "- " + d.hudud + (d.viloyat ? " (" + d.viloyat + ")" : "") : ""}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
-              Masofa: {Number(d.route_km || 0).toFixed(1)} km
+              Joriy masofa: {Number(d.route_km || 0).toFixed(1)} km
             </div>
             {mapHref ? (
               <a href={mapHref} target="_blank" rel="noreferrer" style={styles.smallBtnGhost}>Xaritada korish</a>
             ) : (
               <div style={{ fontSize: 10.5, color: "#8a887e" }}>Joylashuv hali yoq</div>
             )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdminTarix() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(function () {
+    (async function () {
+      const res = await supabase
+        .from("buyurtmalar")
+        .select("order_no, driver_name, driver_phone, created_at")
+        .eq("status", "yetkazildi")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      setRows(res.data || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ color: "#9FB0CC", textAlign: "center", padding: 24 }}>Yuklanmoqda...</div>;
+  if (rows.length === 0) return <div style={{ color: "#9FB0CC", textAlign: "center", padding: 24, fontSize: 13 }}>Hali yetkazilgan buyurtma yoq.</div>;
+
+  return (
+    <div>
+      {rows.map(function (r, i) {
+        return (
+          <div key={i} style={styles.adminCard}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>#{r.order_no}</div>
+              <div style={{ fontSize: 11, color: "#8a887e" }}>{formatDate(r.created_at)}</div>
+            </div>
+            <div style={{ fontSize: 12, marginTop: 3 }}>
+              Haydovchi: {r.driver_name || "-"}{r.driver_phone ? " (" + r.driver_phone + ")" : ""}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdminMasofa() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [totals, setTotals] = useState({});
+
+  useEffect(function () {
+    (async function () {
+      const res = await supabase
+        .from("driver_routes")
+        .select("*")
+        .order("ended_at", { ascending: false })
+        .limit(50);
+      const data = res.data || [];
+      setRows(data);
+      const t = {};
+      data.forEach(function (r) { t[r.driver_name] = (t[r.driver_name] || 0) + Number(r.km || 0); });
+      setTotals(t);
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={{ color: "#9FB0CC", textAlign: "center", padding: 24 }}>Yuklanmoqda...</div>;
+
+  return (
+    <div>
+      {Object.keys(totals).length > 0 && (
+        <div style={styles.adminCard}>
+          <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>Jami masofa (haydovchi boyicha)</div>
+          {Object.entries(totals).map(function (entry) {
+            return (
+              <div key={entry[0]} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+                <span>{entry[0]}</span>
+                <span style={{ fontWeight: 700 }}>{entry[1].toFixed(1)} km</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={styles.sectionTitle}>Sonim tarixi</div>
+      {rows.length === 0 ? (
+        <div style={{ color: "#9FB0CC", textAlign: "center", padding: 20, fontSize: 13 }}>Hali yol tarixi yoq.</div>
+      ) : rows.map(function (r) {
+        return (
+          <div key={r.id} style={styles.adminCard}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{r.driver_name}</div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{Number(r.km || 0).toFixed(1)} km</div>
+            </div>
+            <div style={{ fontSize: 11, color: "#8a887e", marginTop: 2 }}>{formatDate(r.ended_at)}</div>
           </div>
         );
       })}
@@ -461,4 +585,6 @@ const styles = {
   loginBtn: { width: "100%", background: ORANGE, color: "#fff", border: "none", borderRadius: 10, padding: 14, fontWeight: 700, fontSize: 15, marginTop: 16, cursor: "pointer" },
   routeBtn: { background: ORANGE, color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
   routeBtnActive: { background: "#a1281f", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
+  adminTab: { flex: 1, background: DARK_BLUE_LIGHT, color: "#9FB0CC", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  adminTabActive: { flex: 1, background: ORANGE, color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer" },
 };
