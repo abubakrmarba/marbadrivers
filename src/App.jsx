@@ -29,6 +29,18 @@ function matchesZone(customerViloyat, zoneName) {
   return provinces.some((p) => matchesProvince(customerViloyat, p));
 }
 
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 function fmt(n) { return "$" + (Number(n) || 0).toLocaleString("en-US"); }
 function formatDate(iso) {
   try { return new Date(iso).toLocaleString("uz-UZ", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
@@ -41,6 +53,10 @@ export default function App() {
   const [driverPhone, setDriverPhone] = useState("");
   const [driverZone, setDriverZone] = useState("");
   const [driverViloyat, setDriverViloyat] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [onRoute, setOnRoute] = useState(false);
+  const [routeKm, setRouteKm] = useState(0);
+  const [view, setView] = useState("orders");
   const [loading, setLoading] = useState(true);
   const [loginName, setLoginName] = useState(null);
   const [loginPass, setLoginPass] = useState("");
@@ -59,11 +75,14 @@ export default function App() {
 
   async function initDriver(s) {
     setSession(s);
-    const { data } = await supabase.from("drivers").select("name, phone, hudud, viloyat").eq("auth_user_id", s.user.id).maybeSingle();
+    const { data } = await supabase.from("drivers").select("name, phone, hudud, viloyat, on_route, route_km, is_admin").eq("auth_user_id", s.user.id).maybeSingle();
     setDriverName(data?.name || s.user.email.split("@")[0]);
     setDriverPhone(data?.phone || "");
     setDriverZone(data?.hudud || "");
     setDriverViloyat(data?.viloyat || "");
+    setIsAdmin(data?.is_admin || false);
+    setOnRoute(data?.on_route || false);
+    setRouteKm(Number(data?.route_km) || 0);
     setLoading(false);
   }
 
@@ -76,6 +95,47 @@ export default function App() {
   async function saveViloyat(viloyat) {
     await supabase.from("drivers").update({ viloyat }).eq("auth_user_id", session.user.id);
     setDriverViloyat(viloyat);
+  }
+
+  const watchIdRef = React.useRef(null);
+  const lastCoordsRef = React.useRef(null);
+
+  function startRoute() {
+    if (!navigator.geolocation) { alert("Bu qurilmada joylashuv xizmati mavjud emas"); return; }
+    lastCoordsRef.current = null;
+    setRouteKm(0);
+    setOnRoute(true);
+    supabase.from("drivers").update({ on_route: true, route_km: 0 }).eq("auth_user_id", session.user.id);
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const latitude = pos.coords.latitude;
+        const longitude = pos.coords.longitude;
+        setRouteKm((prevKm) => {
+          let newKm = prevKm;
+          if (lastCoordsRef.current) {
+            const delta = haversineKm(lastCoordsRef.current.lat, lastCoordsRef.current.lng, latitude, longitude);
+            if (delta > 0.01 && delta < 2) newKm = prevKm + delta;
+          }
+          lastCoordsRef.current = { lat: latitude, lng: longitude };
+          supabase.from("drivers").update({
+            current_lat: latitude, current_lng: longitude, route_km: newKm, last_ping_at: new Date().toISOString(),
+          }).eq("auth_user_id", session.user.id);
+          return newKm;
+        });
+      },
+      (err) => console.error("geolocation error", err),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+  }
+
+  function endRoute() {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setOnRoute(false);
+    supabase.from("drivers").update({ on_route: false }).eq("auth_user_id", session.user.id);
   }
 
   async function savePhone(newPhone) {
@@ -223,23 +283,100 @@ export default function App() {
               )}
             </div>
           </div>
-          <button onClick={doLogout} style={styles.logoutBtn}>Chiqish</button>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {isAdmin && (
+                <button onClick={() => setView(view === "admin" ? "orders" : "admin")} style={styles.logoutBtn}>
+                  {view === "admin" ? "Buyurtmalar" : "Admin"}
+                </button>
+              )}
+              <button onClick={doLogout} style={styles.logoutBtn}>Chiqish</button>
+            </div>
+            {onRoute ? (
+              <button onClick={endRoute} style={styles.routeBtnActive}>Yolni tugatdim ({routeKm.toFixed(1)} km)</button>
+            ) : (
+              <button onClick={startRoute} style={styles.routeBtn}>Yolga chiqdim</button>
+            )}
+          </div>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-          {mine.length > 0 && (
+          {view === "admin" ? (
+            <AdminPanel />
+          ) : (
             <>
-              <div style={styles.sectionTitle}>Yetkazayotganlarim ({mine.length})</div>
-              {mine.map((o) => <OrderCard key={o.id} order={o} action={{ label: "Yetkazildi", onPress: () => markDelivered(o), busy: busyId === o.id }} />)}
+              {mine.length > 0 && (
+                <>
+                  <div style={styles.sectionTitle}>Yetkazayotganlarim ({mine.length})</div>
+                  {mine.map((o) => <OrderCard key={o.id} order={o} action={{ label: "Yetkazildi", onPress: () => markDelivered(o), busy: busyId === o.id }} />)}
+                </>
+              )}
+
+              <div style={styles.sectionTitle}>Yig'ilgan buyurtmalar ({available.length})</div>
+              {available.length === 0 ? (
+                <div style={{ textAlign: "center", color: "#9FB0CC", padding: "30px 0", fontSize: 13.5 }}>Hozircha buyurtma yo'q.</div>
+              ) : available.map((o) => <OrderCard key={o.id} order={o} action={{ label: "Yuklab oldim", onPress: () => acceptOrder(o), busy: busyId === o.id }} />)}
             </>
           )}
-
-          <div style={styles.sectionTitle}>Yig'ilgan buyurtmalar ({available.length})</div>
-          {available.length === 0 ? (
-            <div style={{ textAlign: "center", color: "#9FB0CC", padding: "30px 0", fontSize: 13.5 }}>Hozircha buyurtma yo'q.</div>
-          ) : available.map((o) => <OrderCard key={o.id} order={o} action={{ label: "Yuklab oldim", onPress: () => acceptOrder(o), busy: busyId === o.id }} />)}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AdminPanel() {
+  const [drivers, setDrivers] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    load();
+    const interval = setInterval(load, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  async function load() {
+    const { data } = await supabase.from("drivers").select("*").order("name");
+    setDrivers(data || []);
+    setLoading(false);
+  }
+
+  if (loading) return <div style={{ color: "#9FB0CC", textAlign: "center", padding: 30 }}>Yuklanmoqda...</div>;
+
+  return (
+    <div>
+      <div style={styles.sectionTitle}>Haydovchilar holati</div>
+      {drivers.map((d) => (
+        <div key={d.id} style={styles.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <div style={{ fontWeight: 700 }}>{d.name}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: d.on_route ? "#2c7a4b" : "#8a887e" }}>
+              {d.on_route ? "Yolda" : "Yolda emas"}
+            </div>
+          </div>
+          <div style={{ fontSize: 12.5, color: "#8a887e", marginBottom: 4 }}>
+            {d.phone || "tel yoq"} {d.hudud ? "- " + d.hudud + (d.viloyat ? " (" + d.viloyat + ")" : "") : ""}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+            Joriy masofa: {Number(d.route_km || 0).toFixed(1)} km
+          </div>
+          {d.current_lat && d.current_lng ? (
+            <a
+              href={"https://yandex.uz/maps/?pt=" + d.current_lng + "," + d.current_lat + "&z=15&l=map"}
+              target="_blank" rel="noreferrer"
+              style={styles.smallBtnGhost}
+            >
+              Xaritada korish
+            </a>
+          ) : (
+            <div style={{ fontSize: 11.5, color: "#8a887e" }}>Joylashuv hali yoq</div>
+          )}
+          {d.last_ping_at && (
+            <div style={{ fontSize: 10.5, color: "#8a887e", marginTop: 4 }}>
+              Yangilangan: {new Date(d.last_ping_at).toLocaleTimeString("uz-UZ")}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -279,4 +416,6 @@ const styles = {
   nameBtn: { border: "none", borderRadius: 8, color: "#fff", fontSize: 13, padding: "10px 8px", cursor: "pointer", fontWeight: 700 },
   input: { width: "100%", padding: "12px 14px", border: `1.5px solid ${PURPLE_BORDER}`, borderRadius: 8, fontSize: 14, background: DARK_BLUE_LIGHT, color: "#fff" },
   loginBtn: { width: "100%", background: ORANGE, color: "#fff", border: "none", borderRadius: 10, padding: 14, fontWeight: 700, fontSize: 15, marginTop: 16, cursor: "pointer" },
+  routeBtn: { background: ORANGE, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  routeBtnActive: { background: "#a1281f", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
 };
