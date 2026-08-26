@@ -19,7 +19,7 @@ const ZONE_PROVINCES = {
 const ZONE_NAMES = Object.keys(ZONE_PROVINCES);
 
 function normalize(s) {
-  return (s || "").toLowerCase().replace(/['\u2018\u2019]/g, "'").trim();
+  return (s || "").toLowerCase().replace(/['\u2018\u2019`\u02BC]/g, "").trim();
 }
 function matchesProvince(customerViloyat, province) {
   return normalize(customerViloyat).includes(normalize(province));
