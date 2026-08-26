@@ -139,7 +139,8 @@ export default function App() {
   }
 
   async function savePhone(newPhone) {
-    await supabase.from("drivers").update({ phone: newPhone }).eq("auth_user_id", session.user.id);
+    const { error } = await supabase.from("drivers").update({ phone: newPhone }).eq("auth_user_id", session.user.id);
+    if (error) { alert("Saqlashda xatolik: " + error.message); return; }
     setDriverPhone(newPhone);
   }
 
