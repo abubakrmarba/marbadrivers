@@ -316,11 +316,15 @@ export default function App() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
             <div style={{ display: "flex", gap: 6 }}>
-              {isAdmin && (
-                <button onClick={function () { setView(view === "admin" ? "orders" : "admin"); }} style={styles.logoutBtn}>
-                  {view === "admin" ? "Buyurtmalar" : "Admin"}
-                </button>
-              )}
+              <button
+                onClick={function () {
+                  if (!isAdmin) { alert("Bu bolim faqat admin uchun"); return; }
+                  setView(view === "admin" ? "orders" : "admin");
+                }}
+                style={styles.logoutBtn}
+              >
+                {view === "admin" ? "Buyurtmalar" : "Admin"}
+              </button>
               <button onClick={doLogout} style={styles.logoutBtn}>Chiqish</button>
             </div>
             {onRoute ? (
