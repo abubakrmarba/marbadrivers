@@ -6,7 +6,7 @@ const DARK_BLUE = "#0F2140";
 const DARK_BLUE_LIGHT = "#1B335C";
 const PURPLE_BORDER = "#5D4976";
 
-const DRIVER_NAMES = ["Musoxon", "Alimardon", "Lazizxon", "Bilolxon", "Oybek", "Oybek Yangi", "Rustamjon", "Ruzmatjon"];
+ const DRIVER_NAMES = ["Musoxon", "Alimardon", "Lazizxon", "Bilolxon", "Oybek", "Oybek Yangi", "Rustamjon", "Ruzmatjon", "Akramjon"];
 
 const ZONE_PROVINCES = {
   "Vodiy": ["Farg'ona", "Andijon", "Namangan"],
